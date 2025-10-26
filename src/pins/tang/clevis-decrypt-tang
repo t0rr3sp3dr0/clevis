@@ -40,6 +40,11 @@ if [ "$(jose fmt -j- -Og clevis -g pin -u- <<< "$jhd")" != "tang" ]; then
     exit 1
 fi
 
+if ! alg="$(jose fmt -j- -Og alg -Su- <<< "$jhd")"; then
+    echo "JWE missing required 'alg' header parameter!" >&2
+    exit 1
+fi
+
 if ! clt="$(jose fmt -j- -Og epk -Oo- <<< "$jhd")"; then
     echo "JWE missing required 'epk' header parameter!" >&2
     exit 1
@@ -112,6 +117,50 @@ if ! rep="$(jose fmt -j- -Og kty -q EC -EUUg crv -q "$crv" -EUUo- <<< "$rep")"; 
 fi
 
 tmp="$(jose jwk exc -i '{"alg":"ECMR"}' -l- -r- <<< "$eph$srv")"
+
+# If the encryption algorithm is key wrapping, try both possible shared keys.
+# The secondary shared key is calculated by flipping the Y coordinate of the
+# primary shared key. This allows remote keys to be stored in secure elements
+# that only support ECDH for key exchange, not ECMR.
+if [ "$alg" != "{alg/+/}" ]; then
+    rep0="$(jose jwk pub -i- <<< "$rep")"
+    jwk0="$(jose jwk exc -l- -r- <<< "$rep0$tmp")"
+
+    inp0="$(mktemp -u)"
+    mkfifo "$inp0"
+
+    jose jwe dec -k- -i- < "$inp0" 2> /dev/null &
+    pid0="$!"
+
+    rep1="$(jose jwk pub -i- -f <<< "$rep")"
+    jwk1="$(jose jwk exc -l- -r- <<< "$rep1$tmp")"
+
+    inp1="$(mktemp -u)"
+    mkfifo "$inp1"
+
+    jose jwe dec -k- -i- < "$inp1" 2> /dev/null &
+    pid1="$!"
+
+    echo -n "$jwk0$hdr." > "$inp0"
+    echo -n "$jwk1$hdr." > "$inp1"
+    tee "$inp0" "$inp1" > /dev/null
+
+    wait "$pid0"
+    ret0="$!"
+
+    wait "$pid1"
+    ret1="$!"
+
+    rm -f "$inp0" "$inp1"
+
+    if [ "$ret0" -ne 0 ] && [ "$ret1" -ne 0 ]; then
+        echo "Unwrapping failed!" >&2
+        exit 1
+    else
+        exit 0
+    fi
+fi
+
 rep="$(jose jwk pub -i- <<< "$rep")"
 jwk="$(jose jwk exc -l- -r- <<< "$rep$tmp")"
 (echo -n "$jwk$hdr."; /bin/cat) | jose jwe dec -k- -i-

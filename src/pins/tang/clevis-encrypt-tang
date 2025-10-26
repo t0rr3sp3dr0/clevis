@@ -153,7 +153,7 @@ fi
 jwk="$(jose fmt -j- -Od key_ops -o- <<< "$jwk")"
 jwk="$(jose fmt -j- -Od alg -o- <<< "$jwk")"
 kid="$(jose jwk thp -i- -a "${CLEVIS_DEFAULT_THP_ALG}"  <<< "$jwk")"
-jwe='{"protected":{"alg":"ECDH-ES","enc":"A256GCM","clevis":{"pin":"tang","tang":{}}}}'
+jwe='{"protected":{"alg":"ECDH-ES+A256KW","enc":"A256GCM","clevis":{"pin":"tang","tang":{}}}}'
 jwe="$(jose fmt -j "$jwe" -g protected -q "$kid" -s kid -UUo-)"
 jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g tang -q "$url" -s url -UUUUo-)"
 jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g tang -j- -s adv -UUUUo- <<< "$jwks")"
